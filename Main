@@ -1,0 +1,224 @@
+#include <LiquidCrystal.h>
+#include <SoftwareSerial.h>
+
+//Initilization of Bluetooth
+int bluetoothTx = 9; // TX-O pin of bluetooth mate, Arduino D2
+int bluetoothRx = 8; // RX-I pin of bluetooth mate, Arduino D3
+SoftwareSerial bluetooth(bluetoothTx, bluetoothRx);
+
+//Initilization of LCD
+LiquidCrystal lcd(13, 12, 5, 4, 3, 2);
+char startMessage[11] = {'S','e','n','s','e','P','l','a','t','e','\0'};
+
+//Initilization of Storage's
+float sensorValue;
+int firstReadings[10];
+int finalReadings[3];
+
+//Initilization of Readings
+double firstReading; 
+int threshold;
+float weight;
+float finalWeight;
+// How often do we do readings?
+long time = 0; //
+int timeBetweenReadings = 200; // We want a reading every 200 ms;
+float analogValueAverage = 0;
+int analogValue;
+float load;
+
+//Initilization of Counts
+int a = 0;
+int b = 0;
+int startMessageCount = 0;
+int firstCount = 0;
+int storeCount =0;
+int blinkCount = 0;
+
+//Initilization of power Button
+int checkPower = 0;
+int lastButtonState = 1;
+int powerState = 0;
+int buttonPower = 10;
+
+//Initilization of reZero
+int checkreZero = 0;
+int lastButtonState2 = 0;
+int reZeroState = 0;
+int buttonreZero = 11;
+
+//Initilization of Conversion
+int checkConversion = 0;
+int lastButtonState3 = 1;
+int conversionState = 0;
+int buttonConversion = 9;
+
+//Initilization of calibration
+float loadA = 149; // kg
+int analogvalA = 325; // analog reading taken with load A on the load cell
+
+float loadB = 129; // kg
+int analogvalB = 313; // analog reading taken with load B on the load cell
+
+
+void setup() {
+  Serial.begin(9500);
+  lcd.begin(16, 2);
+  
+    bluetooth.begin(115200); // The Bluetooth Mate defaults to 115200bps
+    bluetooth.print("$"); // Print three times individually
+    bluetooth.print("$");
+    bluetooth.print("$"); // Enter command mode
+    delay(100); // Short delay, wait for the Mate to send back CMD
+    bluetooth.println("U,9600,N"); // Temporarily Change the baudrate to 9600, no parity
+    // 115200 can be too fast at times for NewSoftSerial to relay the data reliably
+    bluetooth.begin(9600); // Start bluetooth serial at 9600;
+  pinMode(buttonPower,INPUT_PULLUP);
+  pinMode(buttonreZero,INPUT_PULLUP);
+}
+void(* resetFunc) (void) = 0;
+
+void loop() {
+  sensorValue = analogRead(A0); 
+ 
+  turnOnPower();
+  
+  if(powerState == 1){
+    lcd.display();
+  if(startMessageCount < 1){
+    LCDStartMessage();
+    startMessageCount++;
+  }
+  
+   if(a < 10){
+       firstReadings[a] = sensorValue;
+       threshold += (firstReadings[a]/10);
+       a++;
+       }
+   else {
+       LCDDisplayWeight(sensorValue);     
+      }
+  }
+  else{
+    if(checkPower == 1){
+     lcd.noDisplay();
+      resetFunc();
+    }
+  }
+      
+      //Serial.println(firstCount);
+}
+
+
+//-----LCD Functions----
+void LCDStartMessage() {
+  
+    lcd.setCursor(3,0);
+    lcd.cursor();
+    for(int i = 0; i < 10; i++)
+    {
+      lcd.write(startMessage[i]);
+      delay(300);
+    }
+    
+    lcd.noCursor();
+    
+    for(int j = 0; j < 2; j++)
+    {
+    //Turns LCD On and Off 2 times.
+    lcd.noDisplay();
+    delay(500);
+    lcd.display();
+    delay(500); 
+    } 
+}
+
+void LCDDisplayWeight(float x){
+  reZero();
+  weight =  x - (threshold + 20);
+  
+  analogValue = x - 130.2;
+  analogValueAverage = 0.99*analogValueAverage + 0.01*analogValue;
+  
+  lcd.setCursor(0,1);
+  lcd.print("weight:               ");
+  lcd.setCursor(8,1);
+  
+  if (weight <= 0)
+  { 
+    lcd.print(weight = x - x);
+    bluetooth.println(weight);
+  }
+  
+  else { 
+     if(millis() > time + timeBetweenReadings){
+     gramsToPounds();
+     //lcd.print(load,2);
+     //bluetooth.println(load);
+     Serial.print("analogValue: ");Serial.println(analogValueAverage);
+     Serial.print("             load: ");Serial.println(load,2);
+     time = millis();  
+     }
+  }
+  lcd.print("g");
+  delay(500);  
+}
+
+//------------------
+float analogToLoad(float analogval){
+
+  // using a custom map-function, because the standard arduino map function only uses int
+  float load = mapfloat(analogval, analogvalA, analogvalB, loadA, loadB);
+  return load;
+}
+
+float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+//----------------
+
+
+
+
+void reZero(){
+    checkreZero = digitalRead(buttonreZero);
+     if(checkreZero == 1 ){
+       a = 0;
+       threshold = 0;
+     }
+     else {
+     }
+     delay(20);
+}
+
+void gramsToPounds(){
+  checkConversion = digitalRead(buttonConversion);
+    if(checkConversion != lastButtonState3){
+     if(checkConversion == 1){
+       if(conversionState == 1){conversionState =0;}
+        else{conversionState = 1;}
+     }
+        lastButtonState3 = conversionState;
+     }
+     
+     if(conversionState == 0){
+       load = analogToLoad(analogValueAverage);
+     }
+     else {
+       load = analogToLoad(analogValueAverage)/453.59237;
+     }   
+  delay(20);
+}
+
+void turnOnPower(){
+  checkPower = digitalRead(buttonPower);
+    if(checkPower != lastButtonState){
+     if(checkPower == 1){
+       if(powerState == 1){powerState =0;}
+        else{powerState = 1;}
+     }
+        lastButtonState = checkPower;
+     }
+     delay(20);
+}
